@@ -35,6 +35,23 @@ void opaque_use(T const& object) {
     opaque_use(&object);
 }
 
+class CustomAddressOperator {
+  public:
+    static int s_count_address_operator;
+
+    int id = 0;
+
+    CustomAddressOperator* operator&() {
+        ++s_count_address_operator;
+        return this;
+    }
+
+    CustomAddressOperator const* operator&() const {
+        ++s_count_address_operator;
+        return this;
+    }
+};
+
 } // namespace testing
 } // namespace container
 } // namespace iox2
