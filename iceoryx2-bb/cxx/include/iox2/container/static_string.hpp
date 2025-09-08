@@ -170,11 +170,15 @@ class StaticString {
     auto operator=(StaticString const&) -> StaticString& = default;
     auto operator=(StaticString&&) -> StaticString& = default;
 
-    template <uint64_t M, std::enable_if_t<(N >= M), bool> = true>
+    template <uint64_t M, std::enable_if_t<(N >= (M - 1)), bool> = true>
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays) statically bounds checked
     static auto from_utf8(char const (&utf8_str)[M]) -> Optional<StaticString> {
+        if (utf8_str[M - 1] != '\0') {
+            return nullopt;
+        }
         StaticString ret;
-        for (auto character : utf8_str) {
+        for (uint64_t i = 0; i < M - 1; ++i) {
+            char const character = utf8_str[i];
             if (!ret.try_push_back(character)) {
                 return nullopt;
             }
@@ -206,6 +210,7 @@ class StaticString {
 
     constexpr auto try_pop_back() -> bool {
         if (m_size > 0) {
+            m_string[m_size - 1] = '\0';
             --m_size;
             return true;
         } else {
