@@ -34,6 +34,8 @@ template <uint64_t N>
 class StaticString {
   public:
     using ValueType = char;
+    using CodeUnitValueType = char;
+    using CodePointValueType = char32_t;
     using SizeType = size_t;
     using DifferenceType = ptrdiff_t;
     using Reference = char&;
@@ -44,6 +46,8 @@ class StaticString {
     using ConstIterator = ConstPointer;
     using OptionalReference = Optional<std::reference_wrapper<char>>;
     using OptionalConstReference = Optional<std::reference_wrapper<char const>>;
+    using OptionalCodeUnitReference = Optional<std::reference_wrapper<CodeUnitValueType>>;
+    using OptionalConstCodeUnitReference = Optional<std::reference_wrapper<CodeUnitValueType const>>;
 
     // Unchecked element access
     class UncheckedConstAccessor {
@@ -105,15 +109,7 @@ class StaticString {
             return m_parent->m_string[index];
         }
 
-        constexpr auto operator[](SizeType index) const -> ConstReference {
-            return m_parent->m_string[index];
-        }
-
         constexpr auto begin() noexcept -> Iterator {
-            return &(m_parent->m_string[0]);
-        }
-
-        constexpr auto begin() const noexcept -> ConstIterator {
             return &(m_parent->m_string[0]);
         }
 
@@ -121,20 +117,96 @@ class StaticString {
             return &(m_parent->m_string[m_parent->m_size]);
         }
 
-        constexpr auto end() const noexcept -> ConstIterator {
-            return &(m_parent->m_string[m_parent->m_size]);
-        }
-
         constexpr auto data() noexcept -> Pointer {
             return &(m_parent->m_string[0]);
         }
 
-        constexpr auto data() const noexcept -> ConstPointer {
-            return &(m_parent->m_string[0]);
+        constexpr auto c_str() noexcept -> char const* {
+            return data();
+        }
+    };
+
+    class UncheckedAccessorCodeUnits {
+        friend class StaticString;
+
+      private:
+        StaticString* m_parent;
+
+        constexpr explicit UncheckedAccessorCodeUnits(StaticString& parent)
+            : m_parent(&parent) {
         }
 
-        constexpr auto c_str() const noexcept -> char const* {
-            return data();
+      public:
+        ~UncheckedAccessorCodeUnits() = default;
+        UncheckedAccessorCodeUnits(UncheckedAccessorCodeUnits const&) = delete;
+        UncheckedAccessorCodeUnits(UncheckedAccessorCodeUnits&&) = delete;
+        auto operator=(UncheckedAccessorCodeUnits const&) -> UncheckedAccessorCodeUnits& = delete;
+        auto operator=(UncheckedAccessorCodeUnits&&) -> UncheckedAccessorCodeUnits& = delete;
+
+        auto element_at(SizeType index) noexcept -> OptionalCodeUnitReference {
+            if (index < m_parent->m_size) {
+                return m_parent->m_string[index];
+            } else {
+                return nullopt;
+            }
+        }
+
+        auto front_element() noexcept -> OptionalCodeUnitReference {
+            if (!m_parent->empty()) {
+                return m_parent->m_string[0];
+            } else {
+                return nullopt;
+            }
+        }
+
+        auto back_element() noexcept -> OptionalCodeUnitReference {
+            if (!m_parent->empty()) {
+                return m_parent->m_string[m_parent->size() - 1];
+            } else {
+                return nullopt;
+            }
+        }
+    };
+
+    class ConstAccessorCodeUnits {
+        friend class StaticString;
+
+      private:
+        StaticString const* m_parent;
+
+        constexpr explicit ConstAccessorCodeUnits(StaticString const& parent)
+            : m_parent(&parent) {
+        }
+
+      public:
+        ~ConstAccessorCodeUnits() = default;
+        ConstAccessorCodeUnits(ConstAccessorCodeUnits const&) = delete;
+        ConstAccessorCodeUnits(ConstAccessorCodeUnits&&) = delete;
+        auto operator=(ConstAccessorCodeUnits const&) -> ConstAccessorCodeUnits& = delete;
+        auto operator=(ConstAccessorCodeUnits&&) -> ConstAccessorCodeUnits& = delete;
+
+        auto element_at(SizeType index) const noexcept -> OptionalConstCodeUnitReference {
+            if (index < m_parent->m_size) {
+                return m_parent->m_string[index];
+            } else {
+                return nullopt;
+            }
+        }
+
+        auto front_element() const noexcept -> OptionalConstCodeUnitReference {
+            if (!m_parent->empty()) {
+                return m_parent->m_string[0];
+            } else {
+                return nullopt;
+            }
+        }
+
+        auto back_element() const noexcept -> OptionalConstCodeUnitReference {
+            if (!m_parent->empty()) {
+                return m_parent->m_string[m_parent->size() - 1];
+            } else {
+                return nullopt;
+            }
         }
     };
 
@@ -149,10 +221,10 @@ class StaticString {
   public:
     // constructors
     constexpr StaticString() noexcept = default;
-    constexpr StaticString(StaticString const&) = default;
-    constexpr StaticString(StaticString&&) = default;
+    constexpr StaticString(StaticString const&) noexcept = default;
+    constexpr StaticString(StaticString&&) noexcept = default;
 
-    template <uint64_t M, std::enable_if_t<(N >= M), bool> = true>
+    template <uint64_t M, std::enable_if_t<(N > M), bool> = true>
     // NOLINTNEXTLINE(hicpp-explicit-conversions), conceptually a copy constructor
     constexpr StaticString(StaticString<M> const& rhs)
         : m_size(rhs.m_size) {
@@ -167,12 +239,24 @@ class StaticString {
 #endif
         ~StaticString() = default;
 
-    auto operator=(StaticString const&) -> StaticString& = default;
-    auto operator=(StaticString&&) -> StaticString& = default;
+    constexpr auto operator=(StaticString const&) noexcept -> StaticString& = default;
+    constexpr auto operator=(StaticString&&) noexcept -> StaticString& = default;
+
+    template <uint64_t M, std::enable_if_t<(N > M), bool> = true>
+    constexpr auto operator=(StaticString<M> const& rhs) noexcept -> StaticString& {
+        m_size = rhs.m_size;
+        for (size_t i = 0; i < m_size; ++i) {
+            m_string[i] = rhs.m_string[i];
+        }
+        for (size_t i = m_size; i < N; ++i) {
+            m_string[i] = '\0';
+        }
+        return *this;
+    }
 
     template <uint64_t M, std::enable_if_t<(N >= (M - 1)), bool> = true>
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays) statically bounds checked
-    static auto from_utf8(char const (&utf8_str)[M]) -> Optional<StaticString> {
+    static auto from_utf8(char const (&utf8_str)[M]) noexcept -> Optional<StaticString> {
         if (utf8_str[M - 1] != '\0') {
             return nullopt;
         }
@@ -198,7 +282,7 @@ class StaticString {
         return ret;
     }
 
-    constexpr auto try_push_back(char character) -> bool {
+    constexpr auto try_push_back(CodeUnitValueType character) noexcept -> bool {
         if ((m_size < N) && (is_valid_next(character))) {
             m_string[m_size] = character;
             ++m_size;
@@ -208,7 +292,7 @@ class StaticString {
         }
     }
 
-    constexpr auto try_pop_back() -> bool {
+    constexpr auto try_pop_back() noexcept -> bool {
         if (m_size > 0) {
             m_string[m_size - 1] = '\0';
             --m_size;
@@ -230,52 +314,12 @@ class StaticString {
         return size() == 0;
     }
 
-    auto element_at(SizeType index) -> OptionalReference {
-        if (index < m_size) {
-            return m_string[index];
-        } else {
-            return nullopt;
-        }
+    auto unchecked_code_units() -> UncheckedAccessorCodeUnits {
+        return UncheckedAccessorCodeUnits { *this };
     }
 
-    auto element_at(SizeType index) const -> OptionalConstReference {
-        if (index < m_size) {
-            return *m_string[index];
-        } else {
-            return nullopt;
-        }
-    }
-
-    auto front_element() -> OptionalReference {
-        if (!empty()) {
-            return m_string[0];
-        } else {
-            return nullopt;
-        }
-    }
-
-    auto front_element() const -> OptionalReference {
-        if (!empty()) {
-            return m_string[0];
-        } else {
-            return nullopt;
-        }
-    }
-
-    auto back_element() -> OptionalReference {
-        if (!empty()) {
-            return m_string[size() - 1];
-        } else {
-            return nullopt;
-        }
-    }
-
-    auto back_element() const -> OptionalConstReference {
-        if (!empty()) {
-            return m_string[size() - 1];
-        } else {
-            return nullopt;
-        }
+    auto code_units() const -> ConstAccessorCodeUnits {
+        return ConstAccessorCodeUnits { *this };
     }
 
     auto unchecked_access() -> UncheckedAccessor {
@@ -304,6 +348,10 @@ class StaticString {
             }
             return true;
         }
+    }
+
+    friend auto operator!=(StaticString const& lhs, StaticString const& rhs) -> bool {
+        return !(lhs == rhs);
     }
 
   private:
