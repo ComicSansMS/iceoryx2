@@ -27,9 +27,17 @@ namespace iox2 {
 namespace container {
 
 /// A UTF-8 string with fixed static capacity and contiguous inplace storage.
-/// Embedded zeroes (`'\0'`) in the middle of a string are not allowed.
+/// The string class uses Unicode (ISO/IEC 10646) terminology throughout its interface. In particular:
+/// - A code point is the numerical index assigned to a character in the Unicode standard.
+/// - A code unit is the basic component of a character encoding system. For UTF-8, the code unit has a size of 8-bits
+/// For example, the code point U+0041 represents the letter 'A' and can be encoded in a single 8-bit code unit in
+/// UTF-8. The code point U+1F4A9 requires four 8-bit code units in the UTF-8 encoding.
+///
+/// @attention The NUL code point (U+0000) is not allowed anywhere in the string.
 /// @note Currently only Unicode code points less than 128 (0x80) are supported.
-/// @tparam N Maximum number of UTF-8 code units that the string can store, excluding the terminating '\0'.
+///       This restricts the valid contents of a string to those UTF8 strings
+///       that are also valid 7-bit ASCII strings. Full Unicode support will get added later.
+/// @tparam N Maximum number of UTF-8 code units that the string can store, excluding the terminating NUL character.
 template <uint64_t N>
 class StaticString {
   public:
@@ -49,7 +57,8 @@ class StaticString {
     using OptionalCodeUnitReference = Optional<std::reference_wrapper<CodeUnitValueType>>;
     using OptionalConstCodeUnitReference = Optional<std::reference_wrapper<CodeUnitValueType const>>;
 
-    // Unchecked element access
+    /// The unchecked API provided by this class allows for uncontrolled memory access.
+    /// Users of this class must ensure that all memory accesses stay within bounds of the accessed string memory.
     class UncheckedConstAccessor {
         friend class StaticString;
 
@@ -88,6 +97,10 @@ class StaticString {
         }
     };
 
+    /// The unchecked API provided by this class allows for uncontrolled memory access and encoding violations.
+    /// Users of this class must ensure that all memory accesses stay within bounds of the accessed string memory.
+    /// Users of this class must ensure that writes to the string do not result in a sequence of bytes that is no longer
+    /// a valid UTF-8 encoded string. This includes not setting any of the string characters to NUL (U+0000).
     class UncheckedAccessor {
         friend class StaticString;
 
@@ -126,6 +139,9 @@ class StaticString {
         }
     };
 
+    /// The unchecked API provided by this class allows for encoding violations.
+    /// Users of this class must ensure that writes to the string do not result in a sequence of bytes that is no longer
+    /// a valid UTF-8 encoded string. This includes not setting any of the string characters to NUL (U+0000).
     class UncheckedAccessorCodeUnits {
         friend class StaticString;
 
@@ -168,6 +184,7 @@ class StaticString {
         }
     };
 
+    /// This class provides the interface for accessing individual code units of the string.
     class ConstAccessorCodeUnits {
         friend class StaticString;
 
@@ -239,6 +256,7 @@ class StaticString {
 #endif
         ~StaticString() = default;
 
+    // assignment
     constexpr auto operator=(StaticString const&) noexcept -> StaticString& = default;
     constexpr auto operator=(StaticString&&) noexcept -> StaticString& = default;
 
@@ -254,6 +272,9 @@ class StaticString {
         return *this;
     }
 
+    /// Constructs a StaticString from a C-string literal.
+    /// @return Nullopt if the input string does not represent a valid UTF-8 encoding.
+    ///         Otherwise a StaticString that contains a copy of the input string.
     template <uint64_t M, std::enable_if_t<(N >= (M - 1)), bool> = true>
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays) statically bounds checked
     static auto from_utf8(char const (&utf8_str)[M]) noexcept -> Optional<StaticString> {
@@ -270,6 +291,11 @@ class StaticString {
         return ret;
     }
 
+    /// Constructs a StaticString from a null terminated C-style string.
+    /// This unchecked function allows for uncontrolled memory access. Users of this must ensure that the input string
+    /// is properly null terminated.
+    /// @return Nullopt if the input string does not represent a valid UTF-8 encoding.
+    ///         Otherwise a StaticString that contains a copy of the input string.
     static auto from_utf8_null_terminated_unchecked(char const* utf8_str) -> Optional<StaticString> {
         StaticString ret;
         while (*utf8_str != '\0') {
@@ -282,6 +308,10 @@ class StaticString {
         return ret;
     }
 
+    /// Attempt to append a single code unit to the back of the string.
+    /// @return true on success.
+    ///         false if the action would exceed the string's capacity or put the string content into a state that is
+    ///         not a valid UTF-8 encoded string.
     constexpr auto try_push_back(CodeUnitValueType character) noexcept -> bool {
         if ((m_size < N) && (is_valid_next(character))) {
             m_string[m_size] = character;
@@ -292,6 +322,10 @@ class StaticString {
         }
     }
 
+    /// Attempt to pop a single code unit from the back of the string.
+    /// @return true on success.
+    ///         false if the string is already empty or if the action would put the string content into a state that is
+    ///         not a valid UTF-8 encoded string.
     constexpr auto try_pop_back() noexcept -> bool {
         if (m_size > 0) {
             m_string[m_size - 1] = '\0';
@@ -314,22 +348,27 @@ class StaticString {
         return size() == 0;
     }
 
+    /// Unchecked mutable access to the string contents on a per-code-unit basis.
     auto unchecked_code_units() -> UncheckedAccessorCodeUnits {
         return UncheckedAccessorCodeUnits { *this };
     }
 
+    /// Immutable access to the string contents on a per-code-unit basis.
     auto code_units() const -> ConstAccessorCodeUnits {
         return ConstAccessorCodeUnits { *this };
     }
 
+    /// Unchecked mutable access to the string contents.
     auto unchecked_access() -> UncheckedAccessor {
         return UncheckedAccessor { *this };
     }
 
+    /// Unchecked immutable access to the string contents.
     auto unchecked_access() const -> UncheckedConstAccessor {
         return UncheckedConstAccessor { *this };
     }
 
+    // comparison operators
     friend auto operator==(StaticString const& lhs, StaticString const& rhs) -> bool {
         if (lhs.m_size != rhs.m_size) {
             return false;
